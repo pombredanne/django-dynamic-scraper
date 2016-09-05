@@ -2,8 +2,11 @@
 *.db
 .scrapy
 dbs
-example_project/open_news/thumbnails/*.jpg
-tests/scraper/imgs/*.jpg
+example_project/open_news/thumbnails/*
+example_project/items/
+example_project/logs/
+example_project/twistd.pid
+tests/scraper/imgs/*
 MANIFEST
 .DS_Store
 .project

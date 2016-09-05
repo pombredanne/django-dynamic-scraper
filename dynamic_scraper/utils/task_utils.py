@@ -1,10 +1,14 @@
-import datetime
-import urllib, httplib
+#Stage 2 Update (Python 3)
+from future import standard_library
+standard_library.install_aliases()
+from builtins import object
+import datetime, json
+import urllib.request, urllib.parse, http.client
 from scrapy.utils.project import get_project_settings
 settings = get_project_settings()
 from dynamic_scraper.models import Scraper
 
-class TaskUtils():
+class TaskUtils(object):
     
     conf = {
         "MAX_SPIDER_RUNS_PER_TASK": 10,
@@ -19,45 +23,50 @@ class TaskUtils():
             'run_type': kwargs['run_type'],
             'do_action': kwargs['do_action']
         }
-        params = urllib.urlencode(param_dict)
+        params = urllib.parse.urlencode(param_dict)
         headers = {"Content-type": "application/x-www-form-urlencoded", "Accept": "text/plain"}
-        conn = httplib.HTTPConnection("localhost:6800")
+        conn = http.client.HTTPConnection("localhost:6800")
         conn.request("POST", "/schedule.json", params, headers)
         conn.getresponse()
     
     
-    def run_spiders(self, ref_obj_class, scraper_field_name, runtime_field_name, spider_name):
-        
-        kwargs = {
-            '%s__status' % scraper_field_name: 'A',
-            '%s__next_action_time__lt' % runtime_field_name: datetime.datetime.now(),
+    def _pending_jobs(self, spider):
+        # Ommit scheduling new jobs if there are still pending jobs for same spider
+        resp = urllib.request.urlopen('http://localhost:6800/listjobs.json?project=default')
+        data = json.load(resp)
+        if 'pending' in data:
+            for item in data['pending']:
+                if item['spider'] == spider:
+                    return True
+        return False
+    
+    
+    def run_spiders(self, ref_obj_class, scraper_field_name, runtime_field_name, spider_name, *args, **kwargs):
+        filter_kwargs = {
+            scraper_field_name + '__status': 'A',
+            runtime_field_name + '__next_action_time__lt': datetime.datetime.now(),
         }
+        for key in kwargs:
+            filter_kwargs[key] = kwargs[key]
         
         max = settings.get('DSCRAPER_MAX_SPIDER_RUNS_PER_TASK', self.conf['MAX_SPIDER_RUNS_PER_TASK'])
-        ref_obj_list = ref_obj_class.objects.filter(**kwargs).order_by('%s__next_action_time' % runtime_field_name)[:max]
-        for ref_object in ref_obj_list:
-            self._run_spider(id=ref_object.id, spider=spider_name, run_type='TASK', do_action='yes')
+        ref_obj_list = ref_obj_class.objects.filter(*args, **filter_kwargs).order_by(runtime_field_name + '__next_action_time')[:max]
+        if not self._pending_jobs(spider_name):
+            for ref_object in ref_obj_list:
+                self._run_spider(id=ref_object.pk, spider=spider_name, run_type='TASK', do_action='yes')
         
 
-    def run_checkers(self, ref_obj_class, scraper_field_path, runtime_field_name, checker_name):
-        
-        kwargs = {
-            '%s__status' % scraper_field_path: 'A',
-            '%s__next_action_time__lt' % runtime_field_name: datetime.datetime.now(),
+    def run_checkers(self, ref_obj_class, scraper_field_path, runtime_field_name, checker_name, *args, **kwargs):
+        filter_kwargs = {
+            scraper_field_path + '__status': 'A',
+            runtime_field_name + '__next_action_time__lt': datetime.datetime.now(),
         }
-        kwargs2 = {
-            '%s__checker_type' % scraper_field_path: 'N',
-        }
+        for key in kwargs:
+            filter_kwargs[key] = kwargs[key]
         
         max = settings.get('DSCRAPER_MAX_CHECKER_RUNS_PER_TASK', self.conf['MAX_CHECKER_RUNS_PER_TASK'])
-        ref_obj_list = ref_obj_class.objects.filter(**kwargs).exclude(**kwargs2).order_by('%s__next_action_time' % runtime_field_name)[:max]
-        for ref_object in ref_obj_list:
-            self._run_spider(id=ref_object.id, spider=checker_name, run_type='TASK', do_action='yes')
+        ref_obj_list = ref_obj_class.objects.filter(*args, **filter_kwargs).order_by(runtime_field_name + '__next_action_time')[:max]
+        if not self._pending_jobs(checker_name):
+            for ref_object in ref_obj_list:
+                self._run_spider(id=ref_object.pk, spider=checker_name, run_type='TASK', do_action='yes')
 
-
-    def run_checker_tests(self):
-        
-        scraper_list = Scraper.objects.filter(checker_x_path__isnull=False, checker_x_path_result__isnull=False, checker_x_path_ref_url__isnull=False)
-
-        for scraper in scraper_list:
-            self._run_spider(id=scraper.id, spider='checker_test', run_type='TASK', do_action='yes')

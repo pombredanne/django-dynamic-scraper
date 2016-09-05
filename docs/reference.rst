@@ -15,6 +15,38 @@ configuration file. At the moment this is the only way to define DDS settings an
 change DDS settings via command line parameters.
 
 
+DSCRAPER_IMAGES_STORE_FORMAT
+----------------------------
+Default: ``FLAT``
+
+Store format for images (see :ref:`scraping_images` for more info).
+
+====== ================================================================================
+FLAT   Storing only either original or one thumbnail image, no sub folders
+ALL    Storing original (in ``full/``) and thumbnail images (e.g. in ``thumbs/small/``)
+THUMBS Storing only the thumbnail images (e.g. in ``thumbs/small/``)
+====== ================================================================================
+
+.. _setting_dscraper_custom_processors:
+
+DSCRAPER_CUSTOM_PROCESSORS
+--------------------------
+Default: ``[]``
+
+List with Python paths to custom processor modules, e.g.::
+
+	DSCRAPER_CUSTOM_PROCESSORS = [
+	    my_project.scraper_module.scraper.processors,
+	    my_project.scraper_module.scraper.more_processors,
+	    //...
+	]
+
+DSCRAPER_SPLASH_ARGS
+--------------------
+Default: ``{ 'wait': 0.5 }``
+
+Customize ``Splash`` args when ``ScrapyJS/Splash`` is used for Javascript rendering.
+
 DSCRAPER_LOG_ENABLED
 --------------------
 Default: ``True``
@@ -116,12 +148,36 @@ DjangoChecker
 
 TODO
 
+.. _processors:
 
 Processors
 ==========
 
+General Functionality
+---------------------
+
+.. _attribute_placeholders:
+
+Attribute Placeholders
+^^^^^^^^^^^^^^^^^^^^^^
+Processors can use placeholders referencing other scraped attributes in the form of ``{ATTRIBUTE_NAME}``.
+These placeholders are then replaced with the other scraped attribute string after all other processing 
+steps (scraping, regex, processors).
+
+Attribute placeholders can also be used to form **detail page URLs**. This can be used for more flexible
+detail page creation, e.g. by defining a non-saved help attribute ``tmp_attr_1`` in your ``ScrapedObjClass``
+definition and using a ``pre_url`` processor like ``'pre_url': 'http://someurl.org/{tmp_attr_1}'``.
+
+.. note::
+   Placeholders for detail page URLs can only be used with attributes scraped from the main page!
+
+.. _predefined_processors:
+
+Predefined Processors
+---------------------
+
 string_strip
-------------
+^^^^^^^^^^^^
 ============================== ================================================================
 *Description*                  Applies the python strip function to remove leading and trailing
                                characters
@@ -130,8 +186,18 @@ string_strip
 *Result (Example)*             " ... Example Text!!!" -> "Example Text"
 ============================== ================================================================
 
+remove_chars
+^^^^^^^^^^^^
+============================== ================================================================
+*Description*                  Removing of characters or character pattern using the python
+                               re.sub function by providing a regex pattern
+*Usable with other processors* Yes
+*Context definition (Example)* ``'remove_chars': '[-\.]+'``
+*Result (Example)*             "Example... Text--!--!!" -> "Example Text!!!"
+============================== ================================================================
+
 pre_string
-----------
+^^^^^^^^^^
 ============================== ===================================================================
 *Description*                  Adds a string before the scraped text
 *Usable with other processors* Yes
@@ -140,7 +206,7 @@ pre_string
 ============================== ===================================================================
 
 post_string
------------
+^^^^^^^^^^^
 ============================== ===================================================================
 *Description*                  Appends a string after the scraped text
 *Usable with other processors* Yes
@@ -149,7 +215,7 @@ post_string
 ============================== ===================================================================
 
 pre_url
--------
+^^^^^^^
 ============================== ===================================================================
 *Description*                  Adding a domain to scraped url paths, works like pre_string with
                                some url specific enhancements (throwing away defined domain when
@@ -160,7 +226,7 @@ pre_url
 ============================== ===================================================================
 
 replace
--------
+^^^^^^^
 ============================== ===================================================================
 *Description*                  When the scraper succeeds in scraping the attribute value, the text 
                                scraped is replaced with the replacement given in the processor 
@@ -171,7 +237,7 @@ replace
 ============================== ===================================================================
 
 static
-------
+^^^^^^
 ============================== ===================================================================
 *Description*                  No matter if the scraper succeeds in scraping the attribute value 
                                or not, the static value is used as an attribute value. This 
@@ -183,7 +249,7 @@ static
 ============================== ===================================================================
 
 date
-----
+^^^^
 ============================== ===================================================================
 *Description*                  Tries to parse a date with Python's strptime function
                                (extra sugar: recognises 'yesterday', 'gestern', 'today', 'heute',
@@ -194,7 +260,7 @@ date
 ============================== ===================================================================
 
 time
-----
+^^^^
 ============================== ===================================================================
 *Description*                  Tries to parse a time with Python's strptime function
 *Usable with other processors* Yes
@@ -202,8 +268,26 @@ time
 *Result (Example)*             "22 hours 15 minutes" -> "22:15"
 ============================== ===================================================================
 
+ts_to_date
+^^^^^^^^^^
+============================== ===================================================================
+*Description*                  Tries to extract the local date of a unix timestamp
+*Usable with other processors* Yes
+*Context definition (Example)* No context definition
+*Result (Example)*             "1434560700" -> "2015-06-17"
+============================== ===================================================================
+
+ts_to_time
+^^^^^^^^^^
+============================== ===================================================================
+*Description*                  Tries to extract the local time of a unix timestamp
+*Usable with other processors* Yes
+*Context definition (Example)* No context definition
+*Result (Example)*             "1434560700" -> "19:05:00"
+============================== ===================================================================
+
 duration
---------
+^^^^^^^^
 ============================== ===================================================================
 *Description*                  Tries to parse a duration, works like time processor but with
                                time unit overlap breakdown
@@ -211,3 +295,20 @@ duration
 *Context definition (Example)* ``'duration': '%M Minutes'``
 *Result (Example)*             "77 Minutes" -> "01:17:00"
 ============================== ===================================================================
+
+.. _custom_processors:
+
+Custom Processors
+-----------------
+
+If the existing predefined processors don't fit your needs you can write your own custom processors.
+
+A processor is just a simple Python function taking a string as input (the scraped data) together
+with the context information provided in the Django admin and return a somehow modified string.
+
+To get an idea how processors work have a look at the predefined processors in the 
+``dynamic_scraper.utils.processors`` module.
+
+To tell ``DDS`` about your custom processors provide the path(s) to your processor module(s) via the
+:ref:`setting_dscraper_custom_processors` setting.
+

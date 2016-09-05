@@ -1,6 +1,8 @@
-import os.path
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals
+import logging, os.path, unittest
 
-from scrapy import log
+from twisted.internet import reactor
 from scrapy.exceptions import CloseSpider 
 
 from scraper.models import Event
@@ -9,44 +11,26 @@ from dynamic_scraper.models import SchedulerRuntime, Log
 
 
 class ScraperRunTest(ScraperTest):
-    
-    
-    def test_missing_base_elem(self):
-        self.se_base.delete()
-        self.assertRaises(CloseSpider, self.run_event_spider, 1)
-
-
-    def test_missing_url_elem(self):
-        self.se_url.delete()
-        self.assertRaises(CloseSpider, self.run_event_spider, 1)
         
 
     def test_scraper(self):
         self.run_event_spider(1)
         
         self.assertEqual(len(Event.objects.all()), 4)
-        self.assertEqual(Event.objects.get(title='Event 1').description, u'Event 1 description')
+        self.assertEqual(Event.objects.get(title='Event 1').description, 'Event 1 description')
+
     
-    
-    def test_standard_field_as_detail_page_url_hack(self):
-        self.se_desc.x_path = u'a/text()'
-        self.se_desc.from_detail_page = False
-        self.se_desc.save()
-        self.soa_title.attr_type = 'U'
-        self.soa_title.save()
-        self.soa_url.attr_type = 'S'
-        self.soa_url.save()
-        
+    def test_missing_url_elem(self):
+        self.se_url.delete()
         self.run_event_spider(1)
-        
         self.assertEqual(len(Event.objects.all()), 4)
         
     
     def test_double(self):
         checker_rt = SchedulerRuntime()
         checker_rt.save()
-        event = Event(title=u'Event 1', event_website=self.event_website, 
-            url=u'http://localhost:8010/static/site_generic/event1.html',
+        event = Event(title='Event 1', event_website=self.event_website, 
+            url='http://localhost:8010/static/site_generic/event1.html',
             checker_runtime=checker_rt)
         event.save()
         self.run_event_spider(1)
@@ -54,6 +38,66 @@ class ScraperRunTest(ScraperTest):
         self.assertEqual(len(Event.objects.all()), 4)
         self.assertEqual(len(Event.objects.filter(title='Event 1')), 1)
     
+
+    def test_detail_page_url_id_field(self):
+        checker_rt = SchedulerRuntime()
+        checker_rt.save()
+        event = Event(title='Event 1', event_website=self.event_website, 
+            url='http://localhost:8010/static/site_generic/event5.html',
+            checker_runtime=checker_rt)
+        event.save()
+        self.run_event_spider(1)
+        
+        self.assertEqual(len(Event.objects.all()), 5)
+        self.assertEqual(Event.objects.filter(title='Event 1').count(), 2)
+
+
+    def test_single_standard_id_field(self):
+        checker_rt = SchedulerRuntime()
+        checker_rt.save()
+        event = Event(title='Event 1', event_website=self.event_website, 
+            url='http://localhost:8010/static/site_generic/event5.html',
+            checker_runtime=checker_rt)
+        event.save()
+        self.soa_url.id_field = False
+        self.soa_url.save()
+        self.soa_title.id_field = True
+        self.soa_title.save()
+        self.run_event_spider(1)
+        
+        self.assertEqual(len(Event.objects.all()), 4)
+        self.assertEqual(Event.objects.filter(title='Event 1').count(), 1)
+
+
+    def test_double_standard_id_field(self):
+        checker_rt = SchedulerRuntime()
+        checker_rt.save()
+        event = Event(title='Event 1', event_website=self.event_website,
+            description='Event 1 description',
+            url='http://localhost:8010/static/site_generic/event5.html',
+            checker_runtime=checker_rt)
+        event.save()
+        event = Event(title='Event 2', event_website=self.event_website,
+            description='Event 1 description',
+            url='http://localhost:8010/static/site_generic/event6.html',
+            checker_runtime=checker_rt)
+        event.save()
+        event = Event(title='Event 1', event_website=self.event_website,
+            description='Event 2 description',
+            url='http://localhost:8010/static/site_generic/event7.html',
+            checker_runtime=checker_rt)
+        event.save()
+        self.soa_url.id_field = False
+        self.soa_url.save()
+        self.soa_title.id_field = True
+        self.soa_title.save()
+        self.soa_desc.id_field = True
+        self.soa_desc.save()
+        self.run_event_spider(1)
+        
+        self.assertEqual(len(Event.objects.all()), 6)
+        self.assertEqual(Event.objects.filter(description='Event 1 description').count(), 2)
+
     
     def test_standard_update_field(self):
         self.soa_title.attr_type = 'T'
@@ -66,8 +110,8 @@ class ScraperRunTest(ScraperTest):
     def test_standard_update_field_update(self):
         checker_rt = SchedulerRuntime()
         checker_rt.save()
-        event = Event(title=u'Event 1 - Old Title', event_website=self.event_website, 
-            url=u'http://localhost:8010/static/site_generic/event1.html',
+        event = Event(title='Event 1 - Old Title', event_website=self.event_website, 
+            url='http://localhost:8010/static/site_generic/event1.html',
             checker_runtime=checker_rt)
         event.save()
         self.soa_title.attr_type = 'T'
@@ -79,14 +123,33 @@ class ScraperRunTest(ScraperTest):
         self.assertEqual(event_updated.title, 'Event 1')
         self.assertEqual(len(Event.objects.filter(title='Event 1 - Old Title')), 0)
     
+
+    def test_save_to_db(self):
+        self.soa_desc.save_to_db = False
+        self.soa_desc.save()
+        self.run_event_spider(1)
+        
+        self.assertEqual(len(Event.objects.all()), 4)
+        self.assertEqual(Event.objects.filter(description='Event 1 description').count(), 0)
+
+
+    def test_save_to_db_non_model_attribute(self):
+        self.soa_desc.name='non_model_attribute'
+        self.soa_desc.save_to_db = False
+        self.soa_desc.mandatory = True
+        self.soa_desc.save()
+        self.run_event_spider(1)
+        
+        self.assertEqual(len(Event.objects.all()), 4)
+
     
     def test_testmode(self):
         kwargs = {
             'id': 1,
         }
         spider = EventSpider(**kwargs)
-        self.crawler.crawl(spider)
-        self.crawler.start()
+        self.process.crawl(spider, **kwargs)
+        self.process.start()
         
         self.assertEqual(len(Event.objects.all()), 0)
     
@@ -101,12 +164,12 @@ class ScraperRunTest(ScraperTest):
             'run_type': 'TASK',
         }
         spider = EventSpider(**kwargs)
-        self.crawler.crawl(spider)
-        self.crawler.start()
+        self.process.crawl(spider, **kwargs)
+        self.process.start()
         
         self.assertEqual(spider.scheduler_runtime.num_zero_actions, 1)
         
-        spider.log("Test message", log.ERROR)
+        spider.log("Test message", logging.ERROR)
         self.assertGreater(Log.objects.count(), 0)
     
     
@@ -120,23 +183,23 @@ class ScraperRunTest(ScraperTest):
             'run_type': 'SHELL',
         }
         spider = EventSpider(**kwargs)
-        self.crawler.crawl(spider)
-        self.crawler.start()
+        self.process.crawl(spider, **kwargs)
+        self.process.start()
         
         self.assertEqual(spider.scheduler_runtime.num_zero_actions, 0)
         
-        spider.log("Test message", log.ERROR)
+        spider.log("Test message", logging.ERROR)
         self.assertEqual(Log.objects.count(), 0)
     
     
     def test_xml_content_type(self):
-        self.se_base.x_path = u'//item'
+        self.se_base.x_path = '//item'
         self.se_base.save()
-        self.se_title.x_path = u'title/text()'
+        self.se_title.x_path = 'title/text()'
         self.se_title.save()
-        self.se_url.x_path = u'link/text()'
+        self.se_url.x_path = 'link/text()'
         self.se_url.save()
-        self.se_desc.x_path = u'description/text()'
+        self.se_desc.x_path = 'description/text()'
         self.se_desc.from_detail_page = False
         self.se_desc.save()
         
@@ -158,8 +221,8 @@ class ScraperRunTest(ScraperTest):
             'max_items_read': '3',
         }
         spider = EventSpider(**kwargs)
-        self.crawler.crawl(spider)
-        self.crawler.start()
+        self.process.crawl(spider, **kwargs)
+        self.process.start()
 
         self.assertEqual(len(Event.objects.all()), 3)
 
@@ -172,8 +235,8 @@ class ScraperRunTest(ScraperTest):
             'max_items_save': '3',
         }
         spider = EventSpider(**kwargs)
-        self.crawler.crawl(spider)
-        self.crawler.start()
+        self.process.crawl(spider, **kwargs)
+        self.process.start()
 
         self.assertEqual(len(Event.objects.all()), 3)
 
@@ -203,8 +266,26 @@ class ScraperRunTest(ScraperTest):
         self.run_event_spider(1)
         
         self.assertEqual(len(Event.objects.all()), 2)
+
+
+    def test_unicode_standard_field_main_page(self):
+        self.event_website.url = os.path.join(self.SERVER_URL, 'site_unicode/event_main.html')
+        self.event_website.save()
+        self.run_event_spider(1)
+        
+        self.assertEqual(len(Event.objects.filter(title='Event 1 ❤ ☀ ★ ☂ ☻ ♞ ☯ ☭ ☢')), 1)
+        self.assertEqual(len(Event.objects.filter(title='Event 2 雨雪天开车尤其危险')), 1)
     
     
+    def test_unicode_standard_field_detail_page(self):
+        self.event_website.url = os.path.join(self.SERVER_URL, 'site_unicode/event_main.html')
+        self.event_website.save()
+        self.run_event_spider(1)
+        
+        self.assertEqual(len(Event.objects.filter(description='Event 1 description ♖ ☦ ✝ ❖ ➎ ♠ ♣ ♥')), 1)
+        self.assertEqual(len(Event.objects.filter(description='Event 2 description Камеры наблюдения заглянули')), 1)
+    
+
     def test_scraper_pause_status(self):
         self.scraper.status = 'P'
         self.scraper.save()
@@ -215,119 +296,4 @@ class ScraperRunTest(ScraperTest):
         self.scraper.status = 'I'
         self.scraper.save()
         self.assertRaises(CloseSpider, self.run_event_spider, 1)
-    
-    
-    def setUpProcessorTest(self):
-        self.se_url.processors = u'pre_url'
-        self.se_url.proc_ctxt = u"'pre_url': 'http://localhost:8010/static/site_with_processor/'"
-        self.se_url.save()
-        self.event_website.url = os.path.join(self.SERVER_URL, 'site_with_processor/event_main.html')
-        self.event_website.save()
 
-
-    def test_processor(self):
-        self.setUpProcessorTest()
-        self.run_event_spider(1)
-        
-        self.assertEqual(len(Event.objects.all()), 2)
-    
-    
-    def test_multiple_processors_use(self):
-        self.setUpProcessorTest()
-        self.se_desc.processors = u'pre_string, post_string '
-        self.se_desc.proc_ctxt = u"'pre_string': 'before_', 'post_string': '_after',"
-        self.se_desc.save()
-        
-        self.run_event_spider(1)
-        
-        self.assertEqual(Event.objects.get(id=1).description, 'before_Event 2 description_after')
-    
-    
-    def test_replace_processor_wrong_x_path(self):
-        self.setUpProcessorTest()
-        self.se_title.x_path = u'/div[@class="class_which_is_not_there"]/text()'
-        self.se_title.processors = u'replace'
-        self.se_title.proc_ctxt = u"'replace': 'This text is a replacement'"
-        self.se_title.save()
-        self.run_event_spider(1)
-        
-        self.assertEqual(len(Event.objects.all()), 0)
-
-
-    def test_replace_processor_correct_x_path(self):
-        self.setUpProcessorTest()
-        self.se_title.processors = u'replace'
-        self.se_title.proc_ctxt = u"'replace': 'This text is a replacement'"
-        self.se_title.save()
-        self.run_event_spider(1)
-        
-        self.assertEqual(len(Event.objects.all()), 2)
-
-
-    def test_static_processor_wrong_x_path(self):
-        self.setUpProcessorTest()
-        self.se_title.x_path = u'/div[@class="class_which_is_not_there"]/text()'
-        self.se_title.processors = u'static'
-        self.se_title.proc_ctxt = u"'static': 'This text should always be there'"
-        self.se_title.save()
-        self.run_event_spider(1)
-        
-        self.assertEqual(len(Event.objects.all()), 2)
-
-
-    def test_static_processor_correct_x_path(self):
-        self.setUpProcessorTest()
-        self.se_title.processors = u'static'
-        self.se_title.proc_ctxt = u"'static': 'This text should always be there'"
-        self.se_title.save()
-        self.run_event_spider(1)
-        
-        self.assertEqual(len(Event.objects.all()), 2)  
-    
-    
-    def test_reg_exp(self):
-        self.se_desc.reg_exp = u'(\d{6})'
-        self.se_desc.save()
-        self.event_website.url = os.path.join(self.SERVER_URL, 'site_with_reg_exp/event_main.html')
-        self.event_website.save()
-        self.run_event_spider(1)
-        
-        self.assertEqual(len(Event.objects.all()), 2)
-        self.assertEqual(Event.objects.get(title='Event 1').description, '563423')
-    
-    
-    def test_with_imgs(self):
-        path1 = os.path.join(self.PROJECT_ROOT, 'imgs/1d7c0c2ea752d7aa951e88f2bc90a3f17058c473.jpg')
-        if os.access(path1, os.F_OK):
-            os.unlink(path1)
-        path2 = os.path.join(self.PROJECT_ROOT, 'imgs/3cfa4d48e423c5eb3d4f6e9b5e5d373036ac5192.jpg')
-        if os.access(path2, os.F_OK):
-            os.unlink(path2)
-        self.se_desc.mandatory = True
-        self.se_desc.save()
-        self.soa_desc.attr_type = 'I'
-        self.soa_desc.save()
-        
-        self.event_website.url = os.path.join(self.SERVER_URL, 'site_with_imgs/event_main.html')
-        self.event_website.save()
-        self.run_event_spider(1)
-        
-        self.assertEqual(len(Event.objects.all()), 2)
-        self.assertEqual(Event.objects.get(title='Event 1').description, '1d7c0c2ea752d7aa951e88f2bc90a3f17058c473.jpg')
-        self.assertTrue(os.access(path1, os.F_OK))
-        self.assertTrue(os.access(path2, os.F_OK))
-    
-    
-    def test_missing_img_when_img_field_not_mandatory(self):
-        self.se_desc.mandatory = False
-        self.se_desc.save()
-        self.soa_desc.attr_type = 'I'
-        self.soa_desc.save()
-        
-        self.event_website.url = os.path.join(self.SERVER_URL, 'site_with_imgs/event_main2.html')
-        self.event_website.save()
-        self.run_event_spider(1)
-        
-        self.assertEqual(len(Event.objects.all()), 1)
-
-        

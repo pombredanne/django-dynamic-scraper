@@ -65,3 +65,49 @@ Configuration
 -------------
 You can configure DDS logging behaviour by providing some settings in your `settings.py`
 configuration file (see :ref:`settings`).
+
+.. _monitoring:
+
+Monitoring
+==========
+
+Configuration
+-------------
+
+There is a montoring section in the ``DDS`` scraper admin form with basic settings which can be used to monitor scraper/checker
+functionality by checking when the ``last_scraper_save`` or ``last_checker_delete`` occurred:
+
+.. image:: images/screenshot_django-admin_monitoring_section.png
+
+If ``last_scraper_save_alert_period`` or ``last_checker_delete_alert_period`` is set with an alert period in the 
+format demanded it is indicated by red timestamps on the admin scraper overview page if a scraper save or checker delete
+is getting too old, indicating that the scraper/checker might not be working any more.
+
+.. image:: images/screenshot_django-admin_scraper_overview_last_checker_delete_alert.png
+
+Monitoring Automation
+---------------------
+
+You can use the following Django ``management commands`` to monitor your scrapers and checkers on a regular basis::
+
+  python manage.py check_last_scraper_saves [--send-admin-mail] [--with-next-alert]
+  python manage.py check_last_checker_deletes [--send-admin-mail] [--with-next-alert]
+
+Standard behaviour of the commands is to check, if the last scraper save or last checker delete occured is older
+than the corresponding alert period set (see configuration section above). If the ``--send-admin-mail`` flag is set
+an alert mail will be send to all admin users defined in the Django ``settings.py`` file. Additionally the next
+alert timestamps (see Django admin form) will be set to the current timestamp.
+
+Practically this leads to a lot of alerts/mails (depending on the frequency of your cronjobs) once an alert
+situation triggers. If you want to switch from a ``Report-Always`` to a ``Report-Once`` (more or less) behaviour
+you can set the ``--with-next-alert`` flag.
+
+This will run alert checks only for scrapers where the corresponding next alert timestamp has passed.
+The timestamp is then updated by the alert period set as the earliest time for a new alert. 
+
+An alert for a  scraper with an alert period of 2 weeks will then trigger first after the last item was scraped
+more than 2 weeks ago. With the above flag, the next alert will then be earliest 2 weeks after the first alert.
+
+.. note::
+   Using the ``--with-next-alert`` flag only makes sense if your periods for your alerts are significantly 
+   longer (e.g. 1 week+) than your cronjob frequency (e.g. every day).

@@ -1,11 +1,5 @@
-"""
-This file demonstrates writing tests using the unittest module. These will pass
-when you run "manage.py test".
-
-Replace this with more appropriate tests for your application.
-"""
-
-import datetime
+#Stage 2 Update (Python 3)
+import datetime, os, time
 from django.test import TestCase
 from dynamic_scraper.utils import processors
 
@@ -17,6 +11,17 @@ class ProcessorsTest(TestCase):
     
         result_str = processors.string_strip("..This text makes no sense!-----", {'string_strip': '.-'})
         self.assertEqual(result_str, 'This text makes no sense!')
+    
+    
+    def test_remove_chars(self):
+        result_str = processors.remove_chars("Example Text!!!", {'remove_chars': '[-\.]+'})
+        self.assertEqual(result_str, 'Example Text!!!')
+        
+        result_str = processors.remove_chars("Example... Text-!-!!", {'remove_chars': '[-\.]+'})
+        self.assertEqual(result_str, 'Example Text!!!')
+        
+        result_str = processors.remove_chars("", {'remove_chars': '[-\.]+'})
+        self.assertEqual(result_str, '')
     
     
     def test_pre_string(self):
@@ -82,6 +87,20 @@ class ProcessorsTest(TestCase):
         result_str = processors.time('22 Uhr 15', {'time': '%H Uhr %M'})
         self.assertEqual(result_str, '22:15:00')
     
+
+    def test_ts_to_date(self):
+        os.environ['TZ'] = 'Europe/Berlin'
+        time.tzset()
+        result_str = processors.ts_to_date('1434560700', {})
+        self.assertEqual(result_str, '2015-06-17')
+
+
+    def test_ts_to_time(self):
+        os.environ['TZ'] = 'Europe/Berlin'
+        time.tzset()
+        result_str = processors.ts_to_time('1434560700', {})
+        self.assertEqual(result_str, '19:05:00')
+
     
     def test_duration(self):
         result_str = processors.duration('01:25', {'duration': '%H:%M'})
@@ -110,6 +129,18 @@ class ProcessorsTest(TestCase):
         
         result_str = processors.duration('77', {'duration': '%M'})
         self.assertEqual(result_str, '01:17:00')
+        
+        result_str = processors.duration('62', {'duration': '%S'})
+        self.assertEqual(result_str, '00:01:02')
+        
+        result_str = processors.duration('3600', {'duration': '%S'})
+        self.assertEqual(result_str, '01:00:00')
+        
+        result_str = processors.duration('3605', {'duration': '%S'})
+        self.assertEqual(result_str, '01:00:05')
+        
+        result_str = processors.duration('5127', {'duration': '%S'})
+        self.assertEqual(result_str, '01:25:27')
         
         result_str = processors.duration('2 hours 17 minutes 15 seconds', {'duration': '%H hours %M minutes %S seconds'})
         self.assertEqual(result_str, '02:17:15')

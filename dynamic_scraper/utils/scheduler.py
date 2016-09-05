@@ -1,7 +1,10 @@
+#Stage 2 Update (Python 3)
+from __future__ import division
+from builtins import object
 import ast, datetime
 from django.core.exceptions import ImproperlyConfigured
 
-class Scheduler():
+class Scheduler(object):
     
     
     def __init__(self, conf_dict_str):
@@ -15,14 +18,15 @@ class Scheduler():
         ]
         for var in mandatory_vars:
             if var not in self.conf:
-                raise ImproperlyConfigured("Missing config value for scheduler: %s" % var)
+                raise ImproperlyConfigured("Missing config value for scheduler: " + var)
         
     def _parse_conf_dict_str(self, conf_dict_str):
         try:
             conf = conf_dict_str.strip(', ')
+            conf = conf.replace('\r\n','')
             conf = ast.literal_eval("{" + conf + "}")
         except SyntaxError:
-            raise ImproperlyConfigured("Wrong context definition format: %s" % conf_dict_str)
+            raise ImproperlyConfigured("Wrong context definition format: " + conf_dict_str)
         return conf
     
     

@@ -1,11 +1,22 @@
-import datetime
-from scrapy import log
+#Stage 2 Update (Python 3)
+from __future__ import unicode_literals
+from builtins import str
+import datetime, logging, re
 
 
 def string_strip(text, loader_context):
+    if not isinstance(text, str):
+        text = str(text)
     chars = loader_context.get('string_strip', ' \n\t\r')
     return text.strip(chars)
+
+
+def remove_chars(text, loader_context):
+    pattern = loader_context.get('remove_chars', '')
+    result_str = re.sub(pattern, '', str(text))
     
+    return result_str
+
 
 def pre_string(text, loader_context):
     pre_str = loader_context.get('pre_string', '')
@@ -53,7 +64,7 @@ def date(text, loader_context):
         else:
             date = datetime.datetime.strptime(text, cformat)
     except ValueError:
-        loader_context.get('spider').log('Date could not be parsed ("%s", Format string: "%s")!' % (text, cformat), log.ERROR)
+        loader_context.get('spider').log('Date could not be parsed ("{t}", Format string: "{f}")!'.format(t=text, f=cformat), logging.ERROR)
         return None
     return date.strftime('%Y-%m-%d')
 
@@ -63,9 +74,27 @@ def time(text, loader_context):
     try:
         time = datetime.datetime.strptime(text, cformat)
     except ValueError:
-        loader_context.get('spider').log('Time could not be parsed ("%s", Format string: "%s")!' % (text, cformat), log.ERROR)
+        loader_context.get('spider').log('Time could not be parsed ("{t}", Format string: "{f}")!'.format(t=text, f=cformat), logging.ERROR)
         return None
     return time.strftime('%H:%M:%S')
+
+
+def ts_to_date(ts_str, loader_context):
+    try:
+        ts_int = int(ts_str)
+        return datetime.datetime.fromtimestamp(ts_int).strftime('%Y-%m-%d')
+    except ValueError:
+        loader_context.get('spider').log('Timestamp could not be parsed ("{ts}")!'.format(ts=ts_str), logging.ERROR)
+        return None
+
+
+def ts_to_time(ts_str, loader_context):
+    try:
+        ts_int = int(ts_str)
+        return datetime.datetime.fromtimestamp(ts_int).strftime('%H:%M:%S')
+    except ValueError:
+        loader_context.get('spider').log('Timestamp could not be parsed ("{ts}")!'.format(ts=ts_str), logging.ERROR)
+        return None
 
 
 def _breakdown_time_unit_overlap(time_str, limit):
@@ -102,11 +131,18 @@ def duration(text, loader_context):
         text = _breakdown_time_unit_overlap(text, 60)
         cformat = '%H:%M:%S'
     if(cformat == '%S'):
-        text = _breakdown_time_unit_overlap(text, 60)
-        cformat = '%M:%S'
+        if text_int:
+            if text_int >= 3600:
+                hours_str = str(text_int // 3600) + ':'
+                secs_under_hour_str = str(text_int % 3600)
+                text = hours_str + _breakdown_time_unit_overlap(secs_under_hour_str, 60)
+                cformat = '%H:%M:%S'
+            else:
+                text = _breakdown_time_unit_overlap(text, 60)
+                cformat = '%M:%S'
     try:
         duration = datetime.datetime.strptime(text, cformat)
     except ValueError:
-        loader_context.get('spider').log('Duration could not be parsed ("%s", Format string: "%s")!' % (text, cformat), log.ERROR)
+        loader_context.get('spider').log('Duration could not be parsed ("{t}", Format string: "{f}")!'.format(t=text, f=cformat), logging.ERROR)
         return None
     return duration.strftime('%H:%M:%S')

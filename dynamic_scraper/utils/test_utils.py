@@ -1,3 +1,5 @@
+#Stage 2 Update (Python 3)
+from builtins import map
 import unittest
 
 def build_test_suite_from(test_cases):
@@ -16,8 +18,8 @@ def build_test_suite_from(test_cases):
         for comp in components[1:]:
             mod = getattr(mod, comp)
         tests = []
-        for item in mod.__dict__.values():
+        for item in list(mod.__dict__.values()):
             if type(item) is type and issubclass(item, test_case):
                 tests.append(item)
-        test_suites.append(unittest.TestSuite(map(unittest.TestLoader().loadTestsFromTestCase, tests)))
+        test_suites.append(unittest.TestSuite(list(map(unittest.TestLoader().loadTestsFromTestCase, tests))))
     return unittest.TestSuite(test_suites)

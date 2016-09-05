@@ -10,11 +10,13 @@ Defining item checkers
 ======================
 
 Django Dynamic Scraper comes with a built-in mechanism to check, if items once scraped are still existing
-or if they could be deleted from the database. The entity providing this mechanism in DDS is called an 
-item checker. An item checker is like a scraper also using the scraping logic from Scrapy. But instead of
-building together a new scraped item, it just checks the detail page referenced by the url of a scraped item.
-Depending on the ``checker_type`` and the result of the detail page check, the scraped item is kept or
-will be deleted from the DB.
+or if they could be deleted from the database. The entity providing this mechanism in DDS is called a 
+``checker``. A ``checker`` is like a scraper also using the scraping logic from Scrapy. But instead of
+building together a new scraped item, it just checks the detail page referenced by a ``DETAIL_PAGE_URL`` 
+of a scraped item. Depending on the ``checker_type`` and the result of the detail page check, the scraped 
+item is kept or will be deleted from the DB.
+
+.. _creating_checker_class:
 
 Creating a checker class
 ------------------------
@@ -33,30 +35,30 @@ in our ``scraper`` directory::
 	    def __init__(self, *args, **kwargs):
 	        self._set_ref_object(Article, **kwargs)
 	        self.scraper = self.ref_object.news_website.scraper
-	        self.scrape_url = self.ref_object.url
+	        #self.scrape_url = self.ref_object.url (Not used any more in DDS v.0.8.3+)
 	        self.scheduler_runtime = self.ref_object.checker_runtime
 	        super(ArticleChecker, self).__init__(self, *args, **kwargs)
 
 The checker class inherits from the :ref:`django_checker` class from DDS and mainly gives the checker the
 information what to check and what parameters to use for checking. Be careful that the reference object
-is now the scraped object itself, since the checker is scraping from the item page url of this object. The
-url field to check is set with ``self.scrape_url = self.ref_object.url``. Furthermore the checker needs its
-configuration data from the scraper of the reference object. The scheduler runtime is used to schedule the
-next check. So if you want to use checkers for your scraped object, you have to provide a foreign key to 
-a :ref:`scheduler_runtime` object in your model class. The scheduler runtime object also has to be saved
-manually in your pipeline class (see: :ref:`adding_pipeline_class`).
+is now the scraped object itself, since the checker is scraping from the item page url of this object.
+Furthermore the checker needs its configuration data from the scraper of the reference object. The scheduler
+runtime is used to schedule the next check. So if you want to use checkers for your scraped object, you have 
+to provide a foreign key to a :ref:`scheduler_runtime` object in your model class. The scheduler runtime object
+also has to be saved manually in your pipeline class (see: :ref:`adding_pipeline_class`).
 
-Select checker type/set check parameters
-----------------------------------------
+Checker Configuration
+---------------------
+You can create one or more checkers per scraper in the ``Django admin``. A checker is connected to a
+``DETAIL_PAGE_URL`` attribute and has a certain type, defining the checker behaviour. If you define
+more than one checker for a scraper an item is deleted when one of the checkers succeed.
+
 There are momentarily the following checker types to choose from:
 
 ================= =========================================================================
 ``404``           Item is deleted after check has returned 404 HTTP status code 2x in a row
 ``404_OR_X_PATH`` Same as 404 + check for an x_path value in the result
 ================= =========================================================================
-
-The checker type and the x_path parameters when choosing ``404_OR_X_PATH`` as checker type 
-are defined in the Django admin forms of the different scrapers:
 
 .. image:: images/screenshot_django-admin_checker_params.png
 
@@ -75,6 +77,8 @@ indicating, that the content originally expected is not there any more. For our 
 we choose above there is a text and a url provided suggesting to create the currently not existing wiki page,
 so we can use the XPath ``//a[@href="http://en.wikinews.org/wiki/This_wiki_article_doesnt_exist"]/text()`` 
 and the result string "create this page" to uniquely identifying a scraped item not existing any more.
+It is also possible to leave out the result string. Then the checker already succeeds when the
+given xpath is finding elements on the page. 
 
 .. note:: Attention! Make sure that the XPath/result string combination you choose is NOT succeeding on normal
           item pages, otherwise the checker will delete all your items!
@@ -100,6 +104,8 @@ the DB to the checker reference url, look for the item ID and then run::
 
 If everything works well, your item should have been deleted.
 
+.. _run_checker_tests:
+
 Run checker tests
 -----------------
 Django Dynamic Scraper comes with a build-in scraper called ``checker_test`` which can be used to test your checkers
@@ -108,10 +114,19 @@ against the defined reference url. You can run this checker on the command line 
 	scrapy crawl checker_test -a id=SCRAPER_ID
 	
 This scraper is useful both to look, if you have chosen a valid ``checker_x_path_ref_url`` and corresponding ``checker_x_path`` 
-and ``checker_x_path_result`` values as well as to see over time if your reference urls stay valid. For this use case
-there exists a pre-defined celery task called ``run_checker_tests`` which can be used to run the checker test
-for all the scrapers having a valid checker configuration. If a checker breaks over time (e.g. through a 
-renewed "Item not found" page) an error message will occur in the log table in the Django admin. 
+and ``checker_x_path_result`` values as well as to see over time if your reference urls stay valid.
+
+For running all checker tests at once there exists a simple Django management command called ``run_checker_tests``,
+which executes the ``checker_test`` scraper for all of your defined scrapers and outputs Scrapy log messages 
+on ``WARNING`` level and above::
+
+	python manage.py run_checker_tests [--only-active --report-only-errors --send-admin-mail]
+
+The option ``only-active`` will limit execution to active scrapers, ``--report-only-errors`` will more
+generously pass the test on some not so severe cases (e.g. a checker ref url returning ``404`` for a 
+``404_OR_X_PATH`` checker type).
+Executing the command with the ``--send-admin-mail`` flag will send an email to Django admins if checker 
+configurations are not working which can be useful if you want to run this command as a cronjob.
 
 
 Scheduling scrapers/checkers
@@ -184,6 +199,7 @@ configuration could look similar to this::
 .. _django-celery: http://ask.github.com/django-celery/
 .. _kombu: http://pypi.python.org/pypi/kombu
 
+.. _definetasks:
 
 Defining your tasks
 -------------------
@@ -194,19 +210,33 @@ module called ``tasks.py`` in the main directory of your app. The tasks should t
 The two methods in our open news example look like this::
 
 	from celery.task import task
-	
+	from django.db.models import Q
 	from dynamic_scraper.utils.task_utils import TaskUtils
 	from open_news.models import NewsWebsite, Article
 	
 	@task()
 	def run_spiders():
 	    t = TaskUtils()
-	    t.run_spiders(NewsWebsite, 'scraper', 'scraper_runtime', 'article_spider')
+	    #Optional: Django field lookup keyword arguments to specify which reference objects (NewsWebsite)
+	    #to use for spider runs, e.g.:
+	    kwargs = {
+	        'scrape_me': True, #imaginary, model NewsWebsite hat no attribute 'scrape_me' in example 
+	    }
+	    #Optional as well: For more complex lookups you can pass Q objects vi args argument
+	    args = (Q(name='Wikinews'),)
+	    t.run_spiders(NewsWebsite, 'scraper', 'scraper_runtime', 'article_spider', *args, **kwargs)
 	    
 	@task()
 	def run_checkers():
 	    t = TaskUtils()
-	    t.run_checkers(Article, 'news_website__scraper', 'checker_runtime', 'article_checker')
+	    #Optional: Django field lookup keyword arguments to specify which reference objects (Article)
+	    #to use for checker runs, e.g.:
+	    kwargs = {
+	        'check_me': True, #imaginary, model Article hat no attribute 'check_me' in example 
+	    }
+	    #Optional as well: For more complex lookups you can pass Q objects vi args argument
+	    args = (Q(id__gt=100),)
+	    t.run_checkers(Article, 'news_website__scraper', 'checker_runtime', 'article_checker', *args, **kwargs)
 
 The two methods are decorated with the Celery task decorator to tell Celery that these methods should be
 regarded as tasks. In each task, a method from the ``TaskUtils`` module from DDS is called to run the
@@ -238,15 +268,16 @@ If everything works well, you should now see the following line in your command 
 
 	[2011-12-12 10:20:01,535: INFO/MainProcess] Celerybeat: Starting...
 
-As a second daemon process we need the server coming along with Scrapy to actually crawl the different
-websites targeted with our scrapers. You can start the `Scrapy Server`_ with the following command from
-within the main directory of your project::
+As a second daemon process we need the server from the separate ``scrapyd`` project 
+to actually crawl the different websites targeted with our scrapers. 
+Make sure you have deployed your Scrapy project (see: :ref:`setting_up_scrapy`) and run the
+server with::
 
-	scrapy server
-	
+	scrapyd
+
 You should get an output similar to the following:
 
-.. image:: images/screenshot_shell_scrapy_server.png 
+	.. image:: images/screenshot_shell_scrapy_server.png 
 
 For testing your scheduling system, you can temporarily set your time interval of your periodic task to
 a lower interval, e.g. 1 minute. Now you should see a new task coming in and being executed every minute::
@@ -351,6 +382,82 @@ So scraped items are checked in a (relatively, defined by your configuration) sh
 If the item turns out to be persistently existing, the checks are prolonged till ``MAX_TIME`` is reached.
 
 
+.. _advanced_request_options:
+
+Advanced Request Options
+========================
+
+Since ``DDS v.0.7+`` you have more options to fine-tune your scraping requests by e.g. providing additional values for
+``cookies`` or ``HTTP headers``. These values are internally passed to Scrapy's `Request object <http://doc.scrapy.org/en/latest/topics/request-response.html#request-objects>`_. You can find the extended request options in the 
+``Request options`` tab in the ``Scraper form`` of your ``Django project admin``. For the different page types 
+like the (paginated) main pages and the detail pages following scraped urls you can define different request options.
+
+.. note::
+   Parameters for the different options are passed as ``JSON`` dicts. Make sure to use ``double quotes``
+   for attribute values and to leave the ``comma`` for the last attribute key-value pair.
+
+Request Type and Method
+-----------------------
+.. image:: images/screenshot_django-admin_scraper_request_type_and_method.png
+
+The request type - corresponding to Scrapy's `Request classes <http://doc.scrapy.org/en/latest/topics/request-response.html#request-objects>`_ - and the type of the request being sent as ``GET`` or ``POST``. Normally you will choose ``GET``
+together with a classic ``Request`` and ``POST`` with a ``FormRequest`` but for 
+special cases you are free too choose here.
+
+HTTP Headers
+------------
+.. image:: images/screenshot_django-admin_scraper_request_http_headers.png
+
+For setting/changing specific ``HTTP header`` fields like the referer URL use the ``headers`` text field in the request options.
+
+HTTP Body
+---------
+.. image:: images/screenshot_django-admin_scraper_request_body.png
+
+Setting/changing the ``HTTP body``. This can be useful for some special-case scenarios, for example if you want
+to send a  ``POST`` request with content type for the request altered and sending ``POST`` parameters as a ``JSON`` dict.
+
+.. note::
+   Don't be fooled, especially by the example provided: data for the body attribute is NOT provided as ``JSON`` but
+   as a ``string``. While e.g. the ``Headers`` field always has to be in ``JSON`` format, the ``Body`` text is just
+   randomly ``JSON`` in this example, but it could also be ``This is my body text.``.
+
+Request Cookies
+---------------
+.. image:: images/screenshot_django-admin_scraper_request_cookies.png
+
+Sometime the output of a website you want to scrape might depend on the values of some cookies sent to the server.
+For this occasion you can use the ``Cookies`` form in the request options tab, e.g. for setting the language of a
+website to ``english``.
+
+You can also use the ``{page}`` placeholder. This placeholder is replaced for consecutive pages according
+to your pagination parameters (see: :ref:`pagination`).
+
+.. note::
+   If you want to pass a ``session ID`` for a site as a ``cookie``, you can open the desired website in your browser 
+   and copy-paste the session ID from the development console for immediately following scraper runs.
+
+Scrapy Meta Options
+-------------------
+.. image:: images/screenshot_django-admin_scraper_request_scrapy_meta_data.png
+
+Changing Scrapy meta attributes, see
+`Scrapy docs <doc.scrapy.org/en/latest/topics/request-response.html#topics-request-meta>`_ for reference.
+
+Form Data
+---------
+.. image:: images/screenshot_django-admin_scraper_request_form_data.png
+
+If you want to scrape data provided on a website via a web form, data is often returned via ``POST`` request after
+sending various ``POST request parameters`` for narrowing the results. For this scenario use the ``FormRequest`` request
+type and ``POST`` as method in the scraper admin and provide the adequate form data as a JSON dictionary in the request options.
+
+You can also use the ``{page}`` placeholder. This placeholder is replaced for consecutive pages according
+to your pagination parameters (see: :ref:`pagination`).
+
+
+.. _pagination:
+
 Pagination
 ==========
 
@@ -394,6 +501,54 @@ So if you define a list as follows: ``'a-d', 'e-h', 'i-n', 'o-z'``, you get the 
 3. http://www.urltoscrape.org/articles/i-n
 4. http://www.urltoscrape.org/articles/o-z
 
+.. _json_jsonpath_scrapers:
+
+Scraping JSON content
+=====================
+
+Beside creating ``HTML`` or ``XML`` scrapers where you can use classic ``XPath`` notation, ``DDS`` supports also scraping pages encoded in ``JSON`` (``v.0.5.0`` and above), e.g. for crawling web APIs or ajax call result pages.
+
+For scraping ``JSON``, ``JSONPath`` is used, an ``XPath``-like expression language for digging into ``JSON``.
+For reference see expressions as defined here:
+
+* `GitHub - python-jsonpath-rw Library <https://github.com/kennknowles/python-jsonpath-rw>`_
+* `JSONPath - XPath for JSON <http://goessner.net/articles/JsonPath/>`_
+
+.. note::
+   Using ``JSONPath`` in ``DDS`` works for standard ``JSON`` page results, but is not as heavily tested as using
+   ``XPath`` for data extraction. If you are working with more complex ``JSONPath`` queries and run into problems,
+   please report them on `GitHub <https://github.com/holgerd77/django-dynamic-scraper>`_!
+
+Example
+-------
+
+Consider the following simple ``JSON`` example::
+
+  {
+    "response": {
+      "num_results": 3,
+      "results": [
+        {
+          "title": "Example Title",
+          "description": "Example Description"
+        },
+        //...
+      ]
+    }
+  }
+
+The title elements of the results can then be scraped by defining ``response.results`` ``JSONPath`` as the
+base element and ``title`` as the ``JSONPath`` for the scraped object attribute.
+
+Using the ``$`` for refering to the ``JSON`` root is actually optional, so ``response.results`` is 
+equivalent to ``$.response.results``. Sometimes it might be necessary to use the ``$`` though, e.g.
+if you directly want to point to the root of the ``JSON`` file, e.g. to reference the objects in
+a ``JSON`` array file.
+
+.. note::
+   The example project actually contains a working (most of the time :-)) ``JSON`` example scraper!
+
+.. _scraping_images:
 
 Scraping images/screenshots
 ===========================
@@ -423,18 +578,38 @@ For using image scraping in DDS you have to provide some additional parameters i
 	    'small': (170, 170),
 	}
 
-In your settings file you have to add the `DjangoImagesPipeline` from DDS to your `ITEM_PIPELINES` and define
+In your settings file you have to add the ``DjangoImagesPipeline`` from DDS to your ``ITEM_PIPELINES`` and define
 a folder to store images scraped. Don't forget to create this folder in your file system and give it adequate
 permissions. You can also use the thumbnail creation capabilities already build in Scrapy
-by defining the thumbnail size via the `IMAGE_THUMBS` parameter. The semantics here is a bit different from
-what you would expect from Scrapy: thumbnail images in DDS are not stored in addition to the original images
-but are replacing them completely and there is also no extra folder created for them. So when you use  the
-`IMAGE_THUMBS` parameter in DDS the image scraping and storing process stays exacly the same but instead with
-the original images you are ending up with images scaled down to the defined size. Due to this simplification
-you can only use one entry in your `IMAGES_THUMBS` dictionary and the name of the key there doesn't matter.
+by defining the thumbnail size via the ``IMAGES_THUMBS`` parameter.
+
+Choosing store format for images
+--------------------------------
+Different from Scrapy behaviour DDS is by default storing only one image in a flat store format directly under
+the ``IMAGES_STORE`` directory (Scrapy is creating a ``full/`` subdirectory for the original image). If you use the
+``IMAGES_THUMBS`` setting, the scaled down thumbnail image will replace the image with the original size.
+Due to this simplification you can only use one entry in your ``IMAGES_THUMBS`` dictionary and the name of the 
+key there doesn't matter. 
+
+Starting with ``DDS v.0.3.9`` you can change this behaviour with the ``DSCRAPER_IMAGES_STORE_FORMAT`` setting::
+
+	DSCRAPER_IMAGES_STORE_FORMAT = 'FLAT'   # The original image or - if available - one thumbnail image
+	DSCRAPER_IMAGES_STORE_FORMAT = 'ALL'    # Both the original image and all given thumbnail sizes
+	DSCRAPER_IMAGES_STORE_FORMAT = 'THUMBS' # Only the thumbnails
+
+``FLAT`` is the default setting with the behaviour described above. The ``ALL`` setting restores the Scrapy behaviour,
+the original images are stored in a ``full/`` directory under ``IMAGES_STORE``, thumbnail files - if available - in separate 
+sub directories for different thumbnail sizes (e.g. ``thumbs/small/``).
+
+Setting ``DSCRAPER_IMAGES_STORE_FORMAT`` to ``THUMBS``, keeps only the thumbnail files, this setting makes only sense 
+with setting the ``IMAGES_THUMBS`` setting as well. With ``ALL`` or ``THUMBS`` you can also use different sizes for 
+thumbnail creation.
+
+.. note::
+   Differing from the Scrapy output, an image is stored in the DB just by name, omitting path information like ``full/``
 
 .. note:: 
-   For image scraping to work you need the `Python Image Library (PIL) <http://www.pythonware.com/products/pil/>`_.
+   For image scraping to work you need the `Pillow Library (PIL fork) <https://python-pillow.github.io/>`_.
 
 Updating domain model class/scraped obj class definition
 --------------------------------------------------------

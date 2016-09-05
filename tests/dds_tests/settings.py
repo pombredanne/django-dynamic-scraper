@@ -1,3 +1,4 @@
+from __future__ import unicode_literals
 # Django settings for dds_tests project.
 import os.path
 import sys
@@ -127,6 +128,8 @@ INSTALLED_APPS = (
     'scraper',
     'basic',
 )
+
+TEST_RUNNER = 'django.test.runner.DiscoverRunner'
 
 # A sample logging configuration. The only tangible logging
 # performed by this configuration is to send an email to
